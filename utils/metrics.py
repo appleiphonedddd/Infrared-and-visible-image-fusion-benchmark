@@ -1,48 +1,6 @@
-"""
-Fusion quality metrics for the infrared-visible image fusion benchmark.
-
-Image-quality metrics (Table 1, BSPFusion, Inf. Fusion 135, 2026):
-    SSIM   — Structural Similarity Index Measure                  ↑
-    MI     — Mutual Information                                    ↑
-    Q_abf  — Gradient-based quality (Xydeas & Petrovic, 2000)     ↑
-    FMI_w  — Feature MI on Haar wavelet detail coefficients       ↑
-    N_abf  — Noise / artifact measure                             ↓
-    NCIE   — Nonlinear Correlation Information Entropy             ↑
-
-Model-complexity metrics (Fig. 6, BSPFusion, Inf. Fusion 135, 2026):
-    ModelComplexity — Params (M) and FLOPs (G) for any nn.Module
-
-Dependencies: numpy, scipy, scikit-image, torch (model complexity only).
-
-Interface
----------
-Each metric is callable: score = metric(fused, ir, vi) → float
-Inputs may be:
-    torch.Tensor   (C, H, W) or (1, C, H, W),  float32, [0, 1]
-    numpy.ndarray  (H, W, C) or (H, W),         float32, [0, 1]
-RGB visible images are converted to greyscale (BT.601 luminance) internally.
-
-Extending the benchmark with a new metric
-------------------------------------------
-    @register_metric('my_metric')
-    class MyMetric(BaseMetric):
-        name = 'my_metric'
-        higher_is_better = True
-
-        def compute(self, fused, ir, vi):  # all (H, W) float32 in [0, 1]
-            ...
-            return float(score)
-
-    # It is now available in MetricSuite by default if added to _DEFAULT_METRICS,
-    # or explicitly: MetricSuite(metrics=[SSIM(), MyMetric()])
-"""
-
-from __future__ import annotations
-
 import math
 from abc import ABC, abstractmethod
 from typing import Callable, ClassVar
-
 import numpy as np
 import pywt
 import torch
@@ -51,14 +9,10 @@ import torch.nn.functional as F
 from scipy.ndimage import convolve
 from scipy.stats import entropy as _scipy_entropy
 from skimage.metrics import structural_similarity as _skimage_ssim
+from __future__ import annotations
 
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
 
 def _to_numpy_hwc(x: np.ndarray | torch.Tensor) -> np.ndarray:
-    """Any supported input → (H, W, C) float32 in [0, 1]."""
     if isinstance(x, torch.Tensor):
         if x.ndim == 4:
             x = x.squeeze(0)
@@ -70,7 +24,6 @@ def _to_numpy_hwc(x: np.ndarray | torch.Tensor) -> np.ndarray:
 
 
 def _to_gray(img: np.ndarray) -> np.ndarray:
-    """(H, W, C) float32 → (H, W) float32 greyscale via BT.601 luminance."""
     if img.shape[2] == 1:
         return img[:, :, 0]
     return (0.299 * img[:, :, 0]
@@ -79,7 +32,6 @@ def _to_gray(img: np.ndarray) -> np.ndarray:
 
 
 def _hist_entropy(img: np.ndarray, bins: int) -> float:
-    """Shannon entropy (bits) of the flattened intensity histogram."""
     lo, hi = float(img.min()), float(img.max())
     if lo == hi:
         return 0.0
@@ -88,7 +40,6 @@ def _hist_entropy(img: np.ndarray, bins: int) -> float:
 
 
 def _joint_entropy(a: np.ndarray, b: np.ndarray, bins: int) -> float:
-    """Joint Shannon entropy (bits) from a 2-D intensity histogram."""
     a_lo, a_hi = float(a.min()), float(a.max())
     b_lo, b_hi = float(b.min()), float(b.max())
     if a_lo == a_hi or b_lo == b_hi:
@@ -106,10 +57,6 @@ def _mutual_info(a: np.ndarray, b: np.ndarray, bins: int) -> float:
 
 
 def _sobel_gradient(img: np.ndarray):
-    """
-    Gradient magnitude and angle via the Xydeas & Petrovic (2000) Sobel kernels.
-    Returns (magnitude, angle) as (H, W) float32 arrays.
-    """
     hx = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32) / 8.0
     hy = hx.T
     gx = convolve(img, hx, mode='reflect')
@@ -119,34 +66,10 @@ def _sobel_gradient(img: np.ndarray):
 
 
 def _haar_detail(img: np.ndarray) -> np.ndarray:
-    """One-level Haar DWT via PyWavelets. Returns LH+HL+HH concatenated."""
     _, (cH, cV, cD) = pywt.dwt2(img, 'haar')
     return np.concatenate([cH.ravel(), cV.ravel(), cD.ravel()])
 
-
-# ---------------------------------------------------------------------------
-# Base class
-# ---------------------------------------------------------------------------
-
 class BaseMetric(ABC):
-    """
-    Abstract base for all fusion quality metrics.
-
-    Subclass contract
-    -----------------
-    Declare two class-level attributes:
-        name             : str   — short tag used in result tables
-        higher_is_better : bool  — direction of improvement
-
-    Implement one method:
-        compute(fused, ir, vi)  — greyscale (H, W) float32 inputs in [0, 1]
-
-    Public interface
-    ----------------
-    Callable:  metric(fused, ir, vi) → float
-    Accepts torch.Tensor (C, H, W) / (1, C, H, W) or numpy (H, W, C) / (H, W).
-    """
-
     name: ClassVar[str]
     higher_is_better: ClassVar[bool] = True
 
@@ -165,10 +88,6 @@ class BaseMetric(ABC):
     def compute(self, fused: np.ndarray, ir: np.ndarray, vi: np.ndarray) -> float:
         """All inputs: (H, W) float32 greyscale in [0, 1]."""
 
-
-# ---------------------------------------------------------------------------
-# Metric implementations
-# ---------------------------------------------------------------------------
 
 class SSIM(BaseMetric):
     """
