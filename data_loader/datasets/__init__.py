@@ -1,0 +1,21 @@
+from .m3fd import M3FDDataset
+from .msrs import MSRSDataset
+from .roadscene import RoadSceneDataset
+from .tno import TNODataset
+
+REGISTRY: dict = {
+    'MSRS': MSRSDataset,
+    'M3FD': M3FDDataset,
+    'RoadScene': RoadSceneDataset,
+    'TNO': TNODataset,
+}
+
+
+def build_dataset(name: str, **kwargs):
+    """Instantiate a dataset by name. kwargs are forwarded to the dataset constructor."""
+    if name not in REGISTRY:
+        raise KeyError(f"Unknown dataset '{name}'. Available: {sorted(REGISTRY)}")
+    return REGISTRY[name](**kwargs)
+
+
+__all__ = ['REGISTRY', 'build_dataset', 'MSRSDataset', 'M3FDDataset', 'RoadSceneDataset', 'TNODataset']
