@@ -12,7 +12,7 @@ Image-quality metrics (Table 1, BSPFusion, Inf. Fusion 135, 2026):
 Model-complexity metrics (Fig. 6, BSPFusion, Inf. Fusion 135, 2026):
     ModelComplexity — Params (M) and FLOPs (G) for any nn.Module
 
-Dependencies: numpy, torch only (no scipy / scikit-image).
+Dependencies: numpy, scipy, scikit-image, torch (model complexity only).
 
 Interface
 ---------
@@ -44,9 +44,13 @@ from abc import ABC, abstractmethod
 from typing import Callable, ClassVar
 
 import numpy as np
+import pywt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy.ndimage import convolve
+from scipy.stats import entropy as _scipy_entropy
+from skimage.metrics import structural_similarity as _skimage_ssim
 
 
 # ---------------------------------------------------------------------------
@@ -80,9 +84,7 @@ def _hist_entropy(img: np.ndarray, bins: int) -> float:
     if lo == hi:
         return 0.0
     hist, _ = np.histogram(img.ravel(), bins=bins, range=(lo, hi))
-    p = hist / hist.sum()
-    p = p[p > 0]
-    return float(-np.sum(p * np.log2(p)))
+    return float(_scipy_entropy(hist, base=2))
 
 
 def _joint_entropy(a: np.ndarray, b: np.ndarray, bins: int) -> float:
@@ -96,28 +98,11 @@ def _joint_entropy(a: np.ndarray, b: np.ndarray, bins: int) -> float:
         bins=bins,
         range=[[a_lo, a_hi], [b_lo, b_hi]],
     )
-    p = h2d / h2d.sum()
-    p = p[p > 0]
-    return float(-np.sum(p * np.log2(p)))
+    return float(_scipy_entropy(h2d.ravel(), base=2))
 
 
 def _mutual_info(a: np.ndarray, b: np.ndarray, bins: int) -> float:
     return _hist_entropy(a, bins) + _hist_entropy(b, bins) - _joint_entropy(a, b, bins)
-
-
-def _conv2d(img: np.ndarray, kernel: torch.Tensor) -> np.ndarray:
-    """
-    Apply a 2-D kernel to a (H, W) float32 image.
-    Uses reflect padding (falls back to replicate for very small images).
-    Returns (H, W) float32.
-    """
-    h, w = img.shape
-    kH, kW = kernel.shape[-2], kernel.shape[-1]
-    ph, pw = kH // 2, kW // 2
-    t = torch.from_numpy(img).float().unsqueeze(0).unsqueeze(0)
-    mode = 'reflect' if (h > ph and w > pw) else 'replicate'
-    t = F.pad(t, (pw, pw, ph, ph), mode=mode)
-    return F.conv2d(t, kernel).squeeze(0).squeeze(0).numpy()
 
 
 def _sobel_gradient(img: np.ndarray):
@@ -125,35 +110,18 @@ def _sobel_gradient(img: np.ndarray):
     Gradient magnitude and angle via the Xydeas & Petrovic (2000) Sobel kernels.
     Returns (magnitude, angle) as (H, W) float32 arrays.
     """
-    hx = torch.tensor(
-        [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32
-    ).unsqueeze(0).unsqueeze(0) / 8.0
-    hy = hx.transpose(2, 3).clone()
-    gx = _conv2d(img, hx)
-    gy = _conv2d(img, hy)
+    hx = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32) / 8.0
+    hy = hx.T
+    gx = convolve(img, hx, mode='reflect')
+    gy = convolve(img, hy, mode='reflect')
     return (np.sqrt(gx**2 + gy**2).astype(np.float32),
             np.arctan2(gy, gx).astype(np.float32))
 
 
-def _gaussian_kernel_2d(win: int = 11, sigma: float = 1.5) -> torch.Tensor:
-    coords = np.arange(win, dtype=np.float32) - win // 2
-    g = np.exp(-coords**2 / (2.0 * sigma**2))
-    g /= g.sum()
-    return torch.from_numpy(np.outer(g, g).astype(np.float32)).unsqueeze(0).unsqueeze(0)
-
-
 def _haar_detail(img: np.ndarray) -> np.ndarray:
-    """
-    One-level Haar DWT.  Returns LH + HL + HH detail coefficients concatenated
-    into a 1-D float64 array (feature vector for FMI_w).
-    """
-    h, w = img.shape
-    x = img[:h - h % 2, :w - w % 2].astype(np.float64)
-    r0, r1 = x[0::2, :], x[1::2, :]
-    LH = (r0[:, 0::2] + r0[:, 1::2] - r1[:, 0::2] - r1[:, 1::2]) / 4.0
-    HL = (r0[:, 0::2] - r0[:, 1::2] + r1[:, 0::2] - r1[:, 1::2]) / 4.0
-    HH = (r0[:, 0::2] - r0[:, 1::2] - r1[:, 0::2] - r1[:, 1::2]) / 4.0
-    return np.concatenate([LH.ravel(), HL.ravel(), HH.ravel()])
+    """One-level Haar DWT via PyWavelets. Returns LH+HL+HH concatenated."""
+    _, (cH, cV, cD) = pywt.dwt2(img, 'haar')
+    return np.concatenate([cH.ravel(), cV.ravel(), cD.ravel()])
 
 
 # ---------------------------------------------------------------------------
@@ -206,33 +174,17 @@ class SSIM(BaseMetric):
     """
     Structural Similarity Index Measure (Wang et al., TIP 2004).
     Computed as (SSIM(F, IR) + SSIM(F, VI)) / 2 using a Gaussian window.
-    Implemented entirely in numpy + torch (no scikit-image).
     """
 
     name = 'SSIM'
     higher_is_better = True
 
     def __init__(self, win_size: int = 11, sigma: float = 1.5):
-        self._kernel = _gaussian_kernel_2d(win_size, sigma)
-        self._C1 = 0.01 ** 2   # (k1 * L)^2, L = 1
-        self._C2 = 0.03 ** 2
-
-    def _ssim_pair(self, a: np.ndarray, b: np.ndarray) -> float:
-        def w(x):
-            return _conv2d(x, self._kernel)
-
-        mu_a, mu_b = w(a), w(b)
-        mu_a2, mu_b2, mu_ab = mu_a * mu_a, mu_b * mu_b, mu_a * mu_b
-        sigma_a2 = w(a * a) - mu_a2
-        sigma_b2 = w(b * b) - mu_b2
-        sigma_ab = w(a * b) - mu_ab
-
-        num   = (2.0 * mu_ab   + self._C1) * (2.0 * sigma_ab + self._C2)
-        denom = (mu_a2 + mu_b2 + self._C1) * (sigma_a2 + sigma_b2 + self._C2)
-        return float((num / (denom + 1e-10)).mean())
+        self._kwargs = dict(data_range=1.0, gaussian_weights=True, sigma=sigma)
 
     def compute(self, fused, ir, vi):
-        return (self._ssim_pair(fused, ir) + self._ssim_pair(fused, vi)) / 2.0
+        return (_skimage_ssim(fused, ir, **self._kwargs)
+                + _skimage_ssim(fused, vi, **self._kwargs)) / 2.0
 
 
 class MutualInformation(BaseMetric):
