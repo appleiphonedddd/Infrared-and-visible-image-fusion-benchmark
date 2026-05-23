@@ -11,34 +11,6 @@ from .method import SeAFusionMethod, rgb_to_ycbcr, ycbcr_to_rgb
 
 
 class SeAFusionTrainer(BaseFusionTrainer):
-    """
-    Joint low-level and high-level adaptive training for SeAFusion (Algorithm 1).
-
-    Alternates between two phases each outer iteration m (1 ≤ m ≤ M):
-
-      Phase 1 – p steps: update fusion net with L_joint = L_content + β*L_semantic.
-                          β = γ*(m-1) grows each outer iteration (Eq. 14).
-                          Seg net params are frozen; gradients still flow through
-                          it back to the fusion net.
-
-      Phase 2 – q steps: generate fused images via the frozen fusion net, then
-                          update the seg net with L_semantic.
-
-    train_loader must yield batches with keys:
-        'ir'        B×1×H×W  float32 [0, 1]
-        'vi'        B×3×H×W  float32 [0, 1]  (RGB)
-        'seg_label' B×H×W    long             (class indices, 255 = ignore)
-
-    seg_net must accept a B×3×H×W RGB tensor and return (logits_main, logits_aux),
-    both B×C×H×W, where C is the number of semantic classes.
-
-    Hyperparameters matching the paper
-    -----------------------------------
-    M=4, p=2700, q=20000, gamma=1.0
-    Fusion net:  Adam lr=1e-3, betas=(0.9, 0.99), eps=1e-8, weight_decay=2e-4
-    Seg net:     SGD  lr=1e-2, momentum=0.9, weight_decay=5e-4
-                 + poly LR decay: lr * (1 - step / (q*M))^0.9  (set up externally)
-    """
 
     def __init__(
         self,
@@ -71,7 +43,6 @@ class SeAFusionTrainer(BaseFusionTrainer):
         self.joint_loss = SeAFusionLoss()
         self.semantic_loss_fn = SemanticLoss()
 
-    # ------------------------------------------------------------------ #
 
     def _train_epoch(self, m: int) -> dict:
         """One outer iteration m of Algorithm 1."""
@@ -80,7 +51,6 @@ class SeAFusionTrainer(BaseFusionTrainer):
         s_loss = self._phase_seg()
         return {'fusion_loss': f_loss, 'seg_loss': s_loss, 'beta': beta}
 
-    # ------------------------------------------------------------------ #
 
     def _phase_fusion(self, beta: float) -> float:
         """p gradient steps on the fusion network; seg net frozen."""
@@ -132,7 +102,6 @@ class SeAFusionTrainer(BaseFusionTrainer):
 
         return total / self.q
 
-    # ------------------------------------------------------------------ #
 
     def _save_checkpoint(self, epoch: int, save_best: bool = False) -> None:
         state = {
@@ -146,9 +115,6 @@ class SeAFusionTrainer(BaseFusionTrainer):
         path = self.save_dir / f'checkpoint-iter{epoch}.pth'
         torch.save(state, path)
         self.logger.info('Saving checkpoint: %s', path)
-
-
-# ------------------------------------------------------------------ #
 
 
 def _take(n: int, loader: DataLoader):
