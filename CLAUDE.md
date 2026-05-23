@@ -5,8 +5,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
 
 # Evaluate a method on a dataset
 python main.py eval --method SeAFusion --checkpoint path/to/weights.pth \
