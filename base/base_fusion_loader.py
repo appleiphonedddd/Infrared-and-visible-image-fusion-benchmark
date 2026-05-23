@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 
-from .base_dataset import BaseFusionDataset
+from .base_data_loader import BaseFusionDataset
 
 
 class FusionDataLoader(DataLoader):

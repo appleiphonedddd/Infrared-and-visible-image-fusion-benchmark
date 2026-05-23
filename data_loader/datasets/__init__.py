@@ -1,7 +1,4 @@
-from .m3fd import M3FDDataset
-from .msrs import MSRSDataset
-from .roadscene import RoadSceneDataset
-from .tno import TNODataset
+from .data_loaders import M3FDDataset, MSRSDataset, RoadSceneDataset, TNODataset
 
 REGISTRY: dict = {
     'MSRS': MSRSDataset,
