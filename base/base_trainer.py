@@ -1,7 +1,9 @@
 import logging
-import torch
 from abc import abstractmethod
 from pathlib import Path
+from typing import Callable, Optional
+
+import torch
 from torch.utils.data import DataLoader
 
 from .base_method import BaseMethod
@@ -86,3 +88,44 @@ class BaseFusionTrainer:
         self.method.model.load_state_dict(state)
         self.optimizer.load_state_dict(ckpt['optimizer'])
         self.logger.info('Resuming training from epoch %d', self.start_epoch)
+
+
+# ------------------------------------------------------------------ #
+# Trainer registry                                                     #
+# ------------------------------------------------------------------ #
+
+TRAINER_REGISTRY: dict[str, Callable] = {}
+
+
+def register_trainer(name: Optional[str] = None):
+    """
+    Decorator that registers a trainer factory function.
+
+    The factory must have the signature:
+        fn(method: BaseMethod, train_loader: DataLoader, config: dict) -> BaseFusionTrainer
+
+    Usage:
+        @register_trainer('SeAFusion')
+        def _make_seafusion_trainer(method, train_loader, config): ...
+    """
+    def decorator(fn: Callable) -> Callable:
+        key = name if name is not None else fn.__name__
+        if key in TRAINER_REGISTRY:
+            raise KeyError(f"Trainer '{key}' is already registered.")
+        TRAINER_REGISTRY[key] = fn
+        return fn
+    return decorator
+
+
+def build_trainer(
+    name: str,
+    method: BaseMethod,
+    train_loader: DataLoader,
+    config: dict,
+) -> BaseFusionTrainer:
+    """Instantiate a registered trainer by method name."""
+    if name not in TRAINER_REGISTRY:
+        raise KeyError(
+            f"No trainer registered for '{name}'. Available: {sorted(TRAINER_REGISTRY)}"
+        )
+    return TRAINER_REGISTRY[name](method, train_loader, config)

@@ -1,8 +1,9 @@
 from pathlib import Path
 
-from base.base_data_loader import BaseFusionDataset
+from base.base_data_loader import BaseFusionDataset, register_dataset
 
 
+@register_dataset('M3FD')
 class M3FDDataset(BaseFusionDataset):
     """
     M3FD dataset — all 300 pairs used as test set.
@@ -23,6 +24,7 @@ class M3FDDataset(BaseFusionDataset):
         return [(ir_dir / n, vi_dir / n, Path(n).stem) for n in names]
 
 
+@register_dataset('MSRS')
 class MSRSDataset(BaseFusionDataset):
     """
     MSRS dataset with official train/test folder split.
@@ -60,6 +62,7 @@ class MSRSDataset(BaseFusionDataset):
         return sample
 
 
+@register_dataset('RoadScene')
 class RoadSceneDataset(BaseFusionDataset):
     """
     RoadScene dataset — all 42 pairs used as test set (from meta/pred.txt).
@@ -78,6 +81,7 @@ class RoadSceneDataset(BaseFusionDataset):
         names = (self.root / 'meta' / 'pred.txt').read_text().strip().splitlines()
         return [(ir_dir / n, vi_dir / n, Path(n).stem) for n in names]
 
+@register_dataset('TNO')
 class TNODataset(BaseFusionDataset):
     """
     TNO dataset — all 37 pairs used as test set (from meta/pred.txt).

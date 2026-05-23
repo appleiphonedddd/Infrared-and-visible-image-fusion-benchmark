@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 from pathlib import Path
+from torch.utils.data import DataLoader
 
-from base.base_trainer import BaseFusionTrainer
+from base.base_trainer import BaseFusionTrainer, register_trainer
 from loss.seafusion import SeAFusionLoss, SemanticLoss
 from .method import SeAFusionMethod, rgb_to_ycbcr, ycbcr_to_rgb
 
@@ -126,3 +126,67 @@ def _take(n: int, loader: DataLoader):
                 return
             yield batch
             count += 1
+
+
+# ------------------------------------------------------------------ #
+# Trainer factory — registered so main.py can dispatch generically    #
+# ------------------------------------------------------------------ #
+
+@register_trainer('SeAFusion')
+def _make_seafusion_trainer(
+    method: SeAFusionMethod,
+    train_loader: DataLoader,
+    config: dict,
+) -> SeAFusionTrainer:
+    """
+    Build a SeAFusionTrainer from a config dict.
+
+    Required config keys:
+        seg_net (str): path to a saved segmentation model
+                       (saved with torch.save(model), not just state_dict)
+
+    Optional config keys (with defaults):
+        lr_fusion   (float) : 1e-4
+        lr_seg      (float) : 1e-2
+        M           (int)   : 4      — outer iterations
+        p           (int)   : 2700   — fusion gradient steps per iteration
+        q           (int)   : 20000  — seg gradient steps per iteration
+        gamma       (float) : 1.0
+        save_dir    (str)   : 'saved'
+        save_period (int)   : 1
+        resume      (str)   : None
+    """
+    seg_net_path = config.get('seg_net')
+    if not seg_net_path:
+        raise ValueError(
+            "SeAFusion training requires 'seg_net' in config: "
+            "path to a segmentation model saved with torch.save(model, path)"
+        )
+    seg_net: nn.Module = torch.load(
+        seg_net_path, map_location=method.device, weights_only=False
+    )
+
+    fusion_opt = torch.optim.Adam(
+        method.model.parameters(), lr=config.get('lr_fusion', 1e-4)
+    )
+    seg_opt = torch.optim.SGD(
+        seg_net.parameters(),
+        lr=config.get('lr_seg', 1e-2),
+        momentum=0.9,
+        weight_decay=5e-4,
+    )
+
+    return SeAFusionTrainer(
+        method=method,
+        seg_net=seg_net,
+        fusion_optimizer=fusion_opt,
+        seg_optimizer=seg_opt,
+        train_loader=train_loader,
+        M=config.get('M', 4),
+        p=config.get('p', 2700),
+        q=config.get('q', 20000),
+        gamma=config.get('gamma', 1.0),
+        save_dir=config.get('save_dir', 'saved'),
+        save_period=config.get('save_period', 1),
+        resume=config.get('resume'),
+    )

@@ -1,20 +1,16 @@
-from base.base_data_loader import BaseFusionDataset
+import importlib
+from pathlib import Path
+
+from base.base_data_loader import BaseFusionDataset, DATASET_REGISTRY, register_dataset, build_dataset
 from base.base_fusion_loader import FusionDataLoader
-from .data_loaders import M3FDDataset, MSRSDataset, RoadSceneDataset, TNODataset
 
-REGISTRY: dict = {
-    'MSRS': MSRSDataset,
-    'M3FD': M3FDDataset,
-    'RoadScene': RoadSceneDataset,
-    'TNO': TNODataset,
-}
+# Auto-import every *.py module in this package to trigger @register_dataset decorators.
+# Adding a new dataset file here requires zero changes to existing files.
+for _f in sorted(Path(__file__).parent.glob('*.py')):
+    if _f.stem != '__init__':
+        importlib.import_module(f'.{_f.stem}', package=__name__)
 
-
-def build_dataset(name: str, **kwargs):
-    if name not in REGISTRY:
-        raise KeyError(f"Unknown dataset '{name}'. Available: {sorted(REGISTRY)}")
-    return REGISTRY[name](**kwargs)
-
-
-__all__ = ['BaseFusionDataset', 'FusionDataLoader', 'build_dataset', 'REGISTRY',
-           'M3FDDataset', 'MSRSDataset', 'RoadSceneDataset', 'TNODataset']
+__all__ = [
+    'BaseFusionDataset', 'FusionDataLoader',
+    'DATASET_REGISTRY', 'register_dataset', 'build_dataset',
+]
