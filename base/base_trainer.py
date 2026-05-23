@@ -39,6 +39,7 @@ class BaseFusionTrainer:
 
         self.logger = logging.getLogger(type(self).__name__)
         self.start_epoch = 1
+        self.mnt_best = None
 
         if resume is not None:
             self._resume_checkpoint(resume)
