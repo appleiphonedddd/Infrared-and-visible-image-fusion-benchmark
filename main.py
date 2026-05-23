@@ -1,18 +1,10 @@
 import argparse
 import json
 from pathlib import Path
-
 import torch
 from torchvision.utils import save_image
-
-# Importing from `method` triggers auto-discovery of all subpackages,
-# which registers every @register_method and @register_trainer decorator.
 from method import build_method, METHOD_REGISTRY, build_trainer, TRAINER_REGISTRY
-
-# Importing from `data_loader` triggers auto-discovery of all dataset modules,
-# which registers every @register_dataset decorator.
 from data_loader import build_dataset, DATASET_REGISTRY, FusionDataLoader
-
 from utils.metrics import MetricSuite, ModelComplexity
 
 
