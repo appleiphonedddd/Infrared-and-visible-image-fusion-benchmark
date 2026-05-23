@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.12-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![CUDA](https://img.shields.io/badge/CUDA-12.x-76B900?logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-toolkit)
+[![CUDA](https://img.shields.io/badge/CUDA-13.x-76B900?logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-toolkit)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 **A unified framework for evaluating infrared and visible image fusion methods across multiple datasets and metrics — reproducible, extensible, and research-ready.**
@@ -28,11 +28,14 @@ This framework provides:
 
 ## Architecture
 
-The benchmark follows a three-layer design: **datasets → methods → metrics**.
+The benchmark follows a four-layer design: **datasets → methods → trainers → metrics**.
 
 ```
 BaseFusionDataset  →  FusionDataLoader  →  BaseMethod  →  MetricSuite
      (data)               (loader)         (inference)     (evaluation)
+                                   ↕
+                           BaseFusionTrainer
+                              (training)
 ```
 
 | Layer | Base Class | Location |
@@ -40,6 +43,7 @@ BaseFusionDataset  →  FusionDataLoader  →  BaseMethod  →  MetricSuite
 | Dataset | `BaseFusionDataset` | `base/base_data_loader.py` |
 | Loader | `FusionDataLoader` | `base/base_fusion_loader.py` |
 | Method | `BaseMethod` | `base/base_method.py` |
+| Trainer | `BaseFusionTrainer` | `base/base_trainer.py` |
 | Metrics | `MetricSuite` | `utils/metrics.py` |
 
 ---
@@ -49,9 +53,26 @@ BaseFusionDataset  →  FusionDataLoader  →  BaseMethod  →  MetricSuite
 | Requirement | Version |
 |---|---|
 | OS | Ubuntu 22.04 / 24.04 LTS |
-| GPU | NVIDIA GPU with CUDA 12.x |
-| Python | 3.11 via Conda |
-| Docker | Optional (for containerised runs) |
+| GPU | NVIDIA GPU with CUDA 13.x |
+| Python | 3.11 (Conda) / 3.12 (Docker) |
+
+---
+
+## Installation
+
+### Option 1 — Conda
+
+```bash
+conda env create -f env.yaml
+conda activate IF
+```
+
+### Option 2 — Docker
+
+```bash
+docker build -t fusion-bench .
+docker run --gpus all -v $(pwd)/dataset:/workspace/dataset fusion-bench
+```
 
 ---
 
@@ -77,7 +98,7 @@ dataset/
 │   ├── train/
 │   │   ├── ir/
 │   │   ├── vi/
-│   │   └── Segmentation_labels/   # optional
+│   │   └── Segmentation_labels/   # optional, needed for SeAFusion training
 │   └── test/
 │       ├── ir/
 │       └── vi/
@@ -97,10 +118,7 @@ dataset/
 
 | Method | Key Idea | Reference |
 |---|---|---|
-| **SeAFusion** | Semantic-aware fusion via attention | [Tang et al., 2022](https://doi.org/10.1016/j.inffus.2021.12.001) |
-| **TarDAL** | Task-oriented adversarial learning | [Liu et al., CVPR 2022](https://openaccess.thecvf.com/content/CVPR2022/html/Liu_Target-Aware_Dual_Adversarial_Learning_and_a_Multi-Scenario_Multi-Modality_Benchmark_To_CVPR_2022_paper.html) |
-
-> Architecture stubs are in place. Pretrained weight loading must be wired in `_build_model()` for each method.
+| **SeAFusion** | Semantic-aware fusion via alternating fusion/segmentation training | [Tang et al., 2022](https://doi.org/10.1016/j.inffus.2021.12.001) |
 
 ---
 
@@ -119,51 +137,61 @@ All metrics operate on grayscale after auto-converting any RGB input.
 
 ---
 
-## Quick Start
+## Usage
 
-### Step 1 — Create Environment
+### Evaluate
+
+Fuse images and compute all six metrics:
 
 ```bash
-conda env create -f env.yaml
-conda activate IF
+python main.py eval \
+  --method SeAFusion \
+  --checkpoint path/to/weights.pth \
+  --dataset M3FD \
+  --data-root dataset/M3FD \
+  --save-dir results/seafusion_m3fd   # optional: save fused images
 ```
 
-Or use the provided Docker image:
+### Train
 
 ```bash
-docker build -t fusion-bench .
-docker run --gpus all -v $(pwd)/dataset:/workspace/dataset fusion-bench
+python main.py train \
+  --method SeAFusion \
+  --dataset MSRS \
+  --data-root dataset/MSRS \
+  --split train \
+  --config config.json
 ```
 
-### Step 2 — Run a Method
+SeAFusion training requires a `config.json` with at least `seg_net` (path to a segmentation model saved with `torch.save(model, path)`). Optional keys: `lr_fusion`, `lr_seg`, `M`, `p`, `q`, `gamma`, `save_dir`, `save_period`, `resume`.
+
+### Model Complexity
 
 ```bash
-python main.py --method SeAFusion --dataset M3FD --data_root dataset/M3FD
-```
-
-```bash
-python main.py --method TarDAL --dataset MSRS --data_root dataset/MSRS --split test
+python main.py complexity \
+  --method SeAFusion \
+  --resolution 256 256
 ```
 
 ---
 
 ## Extending the Framework
 
-The framework uses a **registry pattern** — new components register themselves with a decorator and are available immediately.
+The framework uses a **registry pattern** — new components register themselves with a decorator and are discovered automatically.
 
 ### Add a New Method
 
 ```python
-# 1. Create method/mymethod/model.py
+# 1. model/mynet.py — the nn.Module
 from base.base_model import BaseModel
 
 class MyNet(BaseModel):
     def forward(self, ir, vi):
         ...
 
-# 2. Create method/mymethod/method.py
+# 2. method/mymethod/method.py — evaluation wrapper
 from base.base_method import BaseMethod, register_method
-from .model import MyNet
+from model.mynet import MyNet
 
 @register_method('MyMethod')
 class MyMethod(BaseMethod):
@@ -173,16 +201,28 @@ class MyMethod(BaseMethod):
     def _fuse(self, ir, vi):
         return self.model(ir, vi)
 
-# 3. method/mymethod/__init__.py — import so the decorator runs
+# 3. method/mymethod/trainer.py — training factory
+from base.base_trainer import BaseFusionTrainer, register_trainer
+
+@register_trainer('MyMethod')
+def _make_mymethod_trainer(method, train_loader, config):
+    optimizer = torch.optim.Adam(method.model.parameters(), lr=config.get('lr', 1e-4))
+    return MyTrainer(method, optimizer, train_loader, **config)
+
+# 4. method/mymethod/__init__.py — trigger registration
 from .method import MyMethod
+from .trainer import _make_mymethod_trainer
 ```
+
+No changes to existing files are needed — `method/__init__.py` auto-discovers all subdirectories.
 
 ### Add a New Dataset
 
 ```python
-# data_loader/datasets/data_loaders.py
-from base.base_data_loader import BaseFusionDataset
+# data_loader/mydata.py
+from base.base_data_loader import BaseFusionDataset, register_dataset
 
+@register_dataset('MyData')
 class MyDataset(BaseFusionDataset):
     ir_channels = 1
     vi_channels = 3
@@ -192,3 +232,4 @@ class MyDataset(BaseFusionDataset):
         ...
 ```
 
+No changes to existing files — `data_loader/__init__.py` auto-imports all `*.py` files in the package.
