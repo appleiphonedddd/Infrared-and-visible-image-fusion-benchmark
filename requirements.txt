@@ -1,0 +1,17 @@
+torch==2.12.0
+torchvision==0.27.0
+triton==3.7.0
+numpy==2.4.6
+scipy==1.17.1
+scikit-image==0.26.0
+pillow==12.2.0
+pywavelets==1.9.0
+imageio==2.37.3
+tifffile==2026.3.3
+pandas==3.0.3
+networkx==3.6.1
+sympy==1.14.0
+filelock==3.29.0
+fsspec==2026.4.0
+jinja2==3.1.6
+typing-extensions==4.15.0
