@@ -34,6 +34,7 @@ Dozens of fusion methods have been proposed in recent years, yet direct comparis
 
 ## News
 
+- **2026-05** — LLVIP dataset added (15488 pairs, train/test split).
 - **2026-05** — Initial public release. SeAFusion supported on M3FD, MSRS, RoadScene, and TNO.
 
 ---
@@ -140,8 +141,9 @@ python main.py complexity \
 | **MSRS** | 1 | 3 | — | `train` / `test` |
 | **RoadScene** | 1 | 3 | — | From `meta/pred.txt` |
 | **TNO** | 1 | 1 | — | From `meta/pred.txt` |
+| **LLVIP** | 3 (RGB-stored IR) | 3 | 15488 | `train` (12025) / `test` (3463) |
 
-> **Note on M3FD:** IR images are stored as 3-channel RGB PNGs even though they are infrared. Method wrappers should convert to grayscale when the model expects 1-channel input.
+> **Note on M3FD and LLVIP:** IR images are stored as 3-channel RGB even though they are infrared (grayscale content). Method wrappers should convert to grayscale when the model expects 1-channel input.
 
 <details>
 <summary><b>Expected Directory Layout</b></summary>
@@ -163,10 +165,17 @@ dataset/
 │   ├── ir/
 │   ├── vi/
 │   └── meta/pred.txt
-└── TNO/
-    ├── ir/
-    ├── vi/
-    └── meta/pred.txt
+├── TNO/
+│   ├── ir/
+│   ├── vi/
+│   └── meta/pred.txt
+└── LLVIP/
+    ├── infrared/
+    │   ├── train/
+    │   └── test/
+    └── visible/
+        ├── train/
+        └── test/
 ```
 
 </details>
@@ -295,7 +304,7 @@ If this benchmark is useful for your research, please cite it as:
 
 ## Acknowledgements
 
-We thank the authors of [SeAFusion](https://doi.org/10.1016/j.inffus.2021.12.001) and the maintainers of M3FD, MSRS, RoadScene, and TNO for providing public datasets and implementations.
+We thank the authors of [SeAFusion](https://doi.org/10.1016/j.inffus.2021.12.001) and the maintainers of M3FD, MSRS, RoadScene, TNO, and LLVIP for providing public datasets and implementations.
 
 ---
 

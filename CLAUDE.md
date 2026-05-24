@@ -18,7 +18,7 @@ python main.py train --method SeAFusion --dataset MSRS --data-root dataset/MSRS 
 python main.py complexity --method SeAFusion --resolution 256 256
 ```
 
-Available datasets: `M3FD`, `MSRS`, `RoadScene`, `TNO`  
+Available datasets: `M3FD`, `MSRS`, `RoadScene`, `TNO`, `LLVIP`  
 Available methods: populated from `method/` at import time — run `python main.py eval --help` for the current list.
 
 ## Architecture
@@ -39,8 +39,9 @@ Concrete datasets live in `data_loader/data_loaders.py`:
 | `MSRSDataset` | 1 (grayscale) | 3 | `train`/`test` splits; optional `seg_label` |
 | `RoadSceneDataset` | 1 | 3 | Pair list from `meta/pred.txt` |
 | `TNODataset` | 1 | 1 (grayscale) | Pair list from `meta/pred.txt` |
+| `LLVIPDataset` | 3 (RGB-stored IR) | 3 | `train`/`test` splits; 12025/3463 pairs |
 
-M3FD stores IR as 3-channel RGB PNG even though it is infrared — method wrappers must convert to grayscale if the model expects 1-channel input. TNO is the only dataset where VI is also grayscale.
+M3FD and LLVIP store IR as 3-channel RGB JPG/PNG even though it is infrared — method wrappers must convert to grayscale if the model expects 1-channel input. TNO is the only dataset where VI is also grayscale.
 
 `data_loader/__init__.py` auto-imports all `*.py` files in the package so `@register_dataset` decorators fire without changes to existing files.
 
@@ -120,4 +121,5 @@ dataset/
 ```
 
 MSRS expects `{root}/{split}/ir/`, `{root}/{split}/vi/`, and optionally `{root}/{split}/Segmentation_labels/`.  
-RoadScene and TNO expect `{root}/ir/`, `{root}/vi/`, `{root}/meta/pred.txt`.
+RoadScene and TNO expect `{root}/ir/`, `{root}/vi/`, `{root}/meta/pred.txt`.  
+LLVIP expects `{root}/infrared/{split}/`, `{root}/visible/{split}/` with `.jpg` files.

@@ -100,3 +100,25 @@ class TNODataset(BaseFusionDataset):
         vi_dir = self.root / 'vi'
         names = (self.root / 'meta' / 'pred.txt').read_text().strip().splitlines()
         return [(ir_dir / n, vi_dir / n, Path(n).stem) for n in names]
+
+@register_dataset('LLVIP')
+class LLVIPDataset(BaseFusionDataset):
+    """
+    LLVIP dataset with official train/test folder split.
+    IR: RGB (3-channel, grayscale content stored as colour JPG) | VI: RGB (3-channel)
+    Method wrappers are responsible for converting IR to grayscale if needed.
+    """
+
+    ir_channels = 3  # stored as RGB despite being grayscale infrared
+    vi_channels = 3
+
+    def __init__(self, root: str | Path, split: str = 'test', transform=None):
+        assert split in ('train', 'test'), f"split must be 'train' or 'test', got '{split}'"
+        self.split = split
+        super().__init__(root, transform)
+
+    def _load_pairs(self) -> list[tuple[Path, Path, str]]:
+        ir_dir = self.root / 'infrared' / self.split
+        vi_dir = self.root / 'visible' / self.split
+        names = sorted(p.name for p in ir_dir.iterdir() if p.suffix == '.jpg')
+        return [(ir_dir / n, vi_dir / n, Path(n).stem) for n in names]
