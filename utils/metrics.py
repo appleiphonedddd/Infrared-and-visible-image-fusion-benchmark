@@ -137,25 +137,51 @@ class Qabf(BaseMetric):
 
 class Nabf(BaseMetric):
     """
-    Noise / artifact measure (lower is better).
-    Measures the fraction of fused gradient energy that exceeds both source
-    gradients, indicating artificially introduced structure (ringing, halos).
+    Modified Fusion Artifacts measure (Shreyamsha Kumar, 2013).
+    Quality-weighted fraction of fused gradient that constitutes artifacts
+    (exceeds both source gradients), weighted by source gradient energy.
     N_abf ∈ [0, 1], lower is better.
     """
 
     name = 'N_abf'
     higher_is_better = False
 
-    def compute(self, fused, ir, vi):
-        mag_f, _ = _sobel_gradient(fused)
-        mag_i, _ = _sobel_gradient(ir)
-        mag_v, _ = _sobel_gradient(vi)
+    # MATLAB parameters from analysis_nabf.m (images in [0,255] with /8 Sobel)
+    _Td     = 2.0
+    _wt_min = 0.001
+    _Lg     = 1.5
+    _Nrg = 0.9999; _kg = 19.0; _sigmag = 0.5
+    _Nra = 0.9995; _ka = 22.0; _sigmaa = 0.5
 
-        excess = np.maximum(0.0, mag_f - np.maximum(mag_i, mag_v))
-        total  = mag_f.sum()
-        if total < 1e-10:
+    def _quality(self, mag_s, ang_s, mag_f, ang_f) -> np.ndarray:
+        eps = 1e-10
+        g = np.where(
+            (mag_s < eps) | (mag_f < eps), 0.0,
+            np.where(mag_s > mag_f, mag_f / (mag_s + eps), mag_s / (mag_f + eps))
+        )
+        da = np.abs(ang_s - ang_f)
+        da = np.where(da > np.pi, 2.0 * np.pi - da, da)
+        da = np.minimum(da, np.pi - da)
+        a = 1.0 - da / (np.pi / 2.0)
+        Qg = self._Nrg / (1.0 + np.exp(-self._kg * (g - self._sigmag)))
+        Qa = self._Nra / (1.0 + np.exp(-self._ka * (a - self._sigmaa)))
+        return np.sqrt(Qg * Qa)
+
+    def compute(self, fused, ir, vi):
+        # Scale to MATLAB [0,255] space so published parameters apply directly
+        mag_f, ang_f = _sobel_gradient(fused * 255.0)
+        mag_i, ang_i = _sobel_gradient(ir * 255.0)
+        mag_v, ang_v = _sobel_gradient(vi * 255.0)
+
+        QAF = self._quality(mag_i, ang_i, mag_f, ang_f)
+        QBF = self._quality(mag_v, ang_v, mag_f, ang_f)
+        wtA = np.where(mag_i >= self._Td, mag_i ** self._Lg, self._wt_min)
+        wtB = np.where(mag_v >= self._Td, mag_v ** self._Lg, self._wt_min)
+        wt_sum = float((wtA + wtB).sum())
+        if wt_sum < 1e-10:
             return 0.0
-        return float(excess.sum() / total)
+        na = ((mag_f > mag_i) & (mag_f > mag_v)).astype(np.float32)
+        return float((na * ((1.0 - QAF) * wtA + (1.0 - QBF) * wtB)).sum() / wt_sum)
 
 
 class FMIw(BaseMetric):
