@@ -116,7 +116,8 @@ class Qabf(BaseMetric):
         da = np.abs(ang_s - ang_f)
         da = np.where(da > np.pi, 2.0 * np.pi - da, da)
         da = np.minimum(da, np.pi - da)
-        Qa = self._Ta / (1.0 + np.exp(self._ka * (da / (np.pi / 2.0) - self._Da)))
+        # Q_{A,rel} = 1 - |da| / (pi/2): perfect match → 1, worst → 0
+        Qa = self._Ta / (1.0 + np.exp(self._ka * (1.0 - da / (np.pi / 2.0) - self._Da)))
         return Qg * Qa
 
     def compute(self, fused, ir, vi):
@@ -188,19 +189,31 @@ class FMIw(BaseMetric):
 
 class NCIE(BaseMetric):
     """
-    Nonlinear Correlation Information Entropy.
-    Builds the 3×3 Pearson correlation matrix of {IR, VI, Fused} and
-    measures the normalised entropy of its eigenvalue distribution.
-    A well-fused image that is highly correlated with both sources yields
-    a more structured (lower-entropy) eigenvalue distribution → NCIE closer
-    to 1.   NCIE ∈ [0, 1], higher is better.
+    Nonlinear Correlation Information Entropy (Liu et al., TPAMI 2012).
+    Builds the 3×3 nonlinear correlation matrix of {IR, VI, Fused} using
+    r_ij = sqrt(1 - exp(-2*MI(i,j))), then measures the normalised entropy
+    of its eigenvalue distribution.  A well-fused image yields highly
+    structured eigenvalues → lower entropy → NCIE closer to 1.
+    NCIE ∈ [0, 1], higher is better.
     """
 
     name = 'NCIE'
     higher_is_better = True
 
     def compute(self, fused, ir, vi):
-        R = np.corrcoef(np.stack([ir.ravel(), vi.ravel(), fused.ravel()]))
+        bins = 256
+        # Nonlinear correlation coefficient: r = sqrt(1 - exp(-2*MI))
+        # per Liu et al. (TPAMI 2012), "Objective assessment of multiresolution
+        # image fusion algorithms for context enhancement in night vision"
+        mi_fi = max(0.0, _mutual_info(fused, ir, bins))
+        mi_fv = max(0.0, _mutual_info(fused, vi, bins))
+        mi_iv = max(0.0, _mutual_info(ir, vi, bins))
+        r_fi = float(np.sqrt(1.0 - np.exp(-2.0 * mi_fi)))
+        r_fv = float(np.sqrt(1.0 - np.exp(-2.0 * mi_fv)))
+        r_iv = float(np.sqrt(1.0 - np.exp(-2.0 * mi_iv)))
+        R = np.array([[1.0, r_iv, r_fi],
+                      [r_iv, 1.0, r_fv],
+                      [r_fi, r_fv, 1.0]], dtype=np.float64)
         eigvals = np.abs(np.linalg.eigvals(R).real)
         total = eigvals.sum()
         if total < 1e-10:
