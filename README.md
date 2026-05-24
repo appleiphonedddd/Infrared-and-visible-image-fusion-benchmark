@@ -106,12 +106,7 @@ conda activate IF
 ### Evaluate a Method
 
 ```bash
-python main.py eval \
-  --method   SeAFusion \
-  --checkpoint path/to/weights.pth \
-  --dataset  M3FD \
-  --data-root dataset/M3FD \
-  --save-dir results/seafusion_m3fd     # optional: saves fused images
+python main.py eval --method SeAFusion --checkpoint checkpoint/SeAFusion.pth --dataset RoadScene --data-root dataset/RoadScene --save-dir results/
 ```
 
 ### Train a Method

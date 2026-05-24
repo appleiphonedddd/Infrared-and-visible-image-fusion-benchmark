@@ -42,12 +42,20 @@ class SeAFusionMethod(BaseMethod):
         self, ir: torch.Tensor, vi: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         ir = ir.to(self.device)
-        vi_y, _ = rgb_to_ycbcr(vi.to(self.device))
+        # M3FD stores IR as 3-channel RGB PNG; model expects 1-channel grayscale
+        if ir.shape[1] == 3:
+            ir = 0.299 * ir[:, :1] + 0.587 * ir[:, 1:2] + 0.114 * ir[:, 2:3]
+        vi = vi.to(self.device)
+        # TNO VI is grayscale (1-ch); use directly as Y. Otherwise extract Y from RGB.
+        vi_y = vi if vi.shape[1] == 1 else rgb_to_ycbcr(vi)[0]
         return ir, vi_y
 
     def _fuse(self, ir: torch.Tensor, vi: torch.Tensor) -> torch.Tensor:
         return self.model(ir, vi)
 
     def postprocess(self, fused: torch.Tensor, vi_original: torch.Tensor) -> torch.Tensor:
+        # TNO: VI is grayscale, no CbCr to merge back — return grayscale result
+        if vi_original.shape[1] == 1:
+            return fused.clamp(0.0, 1.0).cpu()
         _, vi_cbcr = rgb_to_ycbcr(vi_original.to(fused.device))
         return ycbcr_to_rgb(fused, vi_cbcr).cpu()
